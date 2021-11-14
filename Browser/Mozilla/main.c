@@ -4,7 +4,7 @@
 #include "utils/sqlite3.h"
 
 #define _MAX_BUFFER 256
-#define OUTPUT_FILE "webs.csv"
+#define OUTPUT_FILE "websites.csv"
 #define MOZ_PROFILE_PATH "\\Mozilla\\Firefox\\Profiles\\"
 #define MOZ_PROFILE_TOKEN "default-release"
 #define MOZ_WEB_VISITS_FILE "places.sqlite"
@@ -77,5 +77,6 @@ int main()
 
     sqlite3_finalize(stmt);
     sqlite3_close(database);
+    
     return 0;
 }
