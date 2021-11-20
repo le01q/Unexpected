@@ -22,7 +22,7 @@ const char BrowserLocalPath[_MAX_BROWSERS][_MAX_PATH] =
         "\\Google\\Chrome\\User Data\\Default",
         "\\Yandex\\YandexBrowser\\User Data\\Default"};
 
-int existf(char *path)
+unsigned ExistFile(char *path)
 {
     struct stat info;
     return stat(path, &info) != 0;
@@ -34,6 +34,13 @@ void Notification(char *Type, char *Message)
     return;
 }
 
+void DisplayOptions(void)
+{
+    puts("[1] Most visited websites");
+    puts("[2] Recently visited websites");
+    puts("[5] Exit");
+}
+
 unsigned GetOption(void)
 {
     unsigned option;
@@ -41,9 +48,70 @@ unsigned GetOption(void)
     return option;
 }
 
-void DisplayOptions(void)
+unsigned UpdateHistoryFile(char (*BrowserPath)[_MAX_PATH])
 {
-    puts("1. Most visited pages");
+    char tmp_path[_MAX_PATH];
+    char cmd[_MAX_PATH];
+    snprintf(tmp_path, sizeof tmp_path, "%s\\History", getenv("TEMP"));
+    if (ExistFile(tmp_path) != 1)
+    {
+        Notification("Info", "Found history file, updating..");
+        snprintf(cmd, sizeof cmd, "del %s", tmp_path);
+    }
+    snprintf(tmp_path, sizeof tmp_path, "%s\\History", *BrowserPath);
+    snprintf(cmd, sizeof cmd, "copy \"%s\" %s > nul", tmp_path, getenv("TEMP"));
+    system(cmd);
+    Sleep(500);
+    return EXIT_SUCCESS;
+}
+
+unsigned GetLastestVisitedPages(Browser BrowserInfo)
+{
+    sqlite3 *database;
+    sqlite3_stmt *stmt;
+    char file_path[_MAX_PATH];
+
+    if (UpdateHistoryFile(&BrowserInfo.path))
+    {
+        Notification("Error", "Can't update the history file.");
+        return EXIT_FAILURE;
+    }
+
+    snprintf(file_path, sizeof file_path, "%s\\History", getenv("TEMP"));
+    if (sqlite3_open(file_path, &database))
+    {
+        sqlite3_close(database);
+        Notification("Error", "Can't open the history database.");
+        return EXIT_FAILURE;
+    }
+    if (sqlite3_prepare_v2(database, "select title from urls ORDER BY last_visit_time DESC limit 20", -1, &stmt, NULL))
+    {
+        sqlite3_close(database);
+        Notification("Error", "Can't execute select query.");
+        return EXIT_FAILURE;
+    }
+
+    Notification("Info", "Recently visited websites\n");
+
+    while (sqlite3_step(stmt) != SQLITE_DONE)
+    {
+        int i, num_cols = sqlite3_column_count(stmt);
+        for (i = 0; i < num_cols; i++)
+        {
+            switch (sqlite3_column_type(stmt, i))
+            {
+            case (SQLITE3_TEXT):
+                printf("> %s\n", sqlite3_column_text(stmt, i));
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    sqlite3_close(database);
+    return EXIT_SUCCESS;
 }
 
 unsigned GetMostVisitedPages(Browser BrowserInfo)
@@ -51,21 +119,12 @@ unsigned GetMostVisitedPages(Browser BrowserInfo)
     sqlite3 *database;
     sqlite3_stmt *stmt;
     char file_path[_MAX_PATH];
-    char cmd[_MAX_PATH];
-    
-    snprintf(file_path, sizeof file_path, "%s\\History", getenv("TEMP"));
 
-    if (existf(file_path) != 1)
+    if (UpdateHistoryFile(&BrowserInfo.path))
     {
-        printf("> Found history file, removing..\n");
-        snprintf(cmd, sizeof cmd, "del %s", file_path);
+        Notification("Error", "Can't update the history file.");
+        return EXIT_FAILURE;
     }
-
-    printf("> Copying history file into temp..\n");
-    snprintf(file_path, sizeof file_path, "%s\\History", BrowserInfo.path);
-    snprintf(cmd, sizeof cmd, "copy \"%s\" %s", file_path, getenv("TEMP"));
-    system(cmd);
-    Sleep(500);
 
     snprintf(file_path, sizeof file_path, "%s\\History", getenv("TEMP"));
 
@@ -75,14 +134,14 @@ unsigned GetMostVisitedPages(Browser BrowserInfo)
         Notification("Error", "Can't open the history database.");
         return EXIT_FAILURE;
     }
-    if (sqlite3_prepare_v2(database, "SELECT title, visit_count from urls order by visit_count DESC LIMIT 5", -1, &stmt, NULL))
+    if (sqlite3_prepare_v2(database, "SELECT title, visit_count from urls order by visit_count DESC LIMIT 20", -1, &stmt, NULL))
     {
         sqlite3_close(database);
         Notification("Error", "Can't execute select query.");
         return EXIT_FAILURE;
     }
 
-    printf("\nMost visited pages:\n");
+    Notification("Info", "Most visited pages\n");
 
     while (sqlite3_step(stmt) != SQLITE_DONE)
     {
@@ -110,8 +169,8 @@ unsigned GetMostVisitedPages(Browser BrowserInfo)
 
 void DisplayBroswerInfo(Browser BrowserInfo)
 {
-    printf("Your current default browser is %s, version %s (%d)\n", BrowserInfo.name, BrowserInfo.version, BrowserInfo.id);
-    printf("Location: %s\n", BrowserInfo.path);
+    printf("[Browser] %s %s (%d)\n", BrowserInfo.name, BrowserInfo.version, BrowserInfo.id);
+    printf("[Location] %s\n\n", BrowserInfo.path);
     return;
 }
 
