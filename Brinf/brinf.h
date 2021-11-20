@@ -7,8 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
-#include <sys/stat.h>
 #include "utils/sqlite3.h"
+#include <sys/stat.h>
+
+#define APPNAME "Brinf"
+#define VERSION "0.0.8"
+#define AUTHOR "ne0de"
 
 #define REG_PATH "Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice"
 #define REG_BROWSER_PATH "SOFTWARE\\"
@@ -36,11 +40,13 @@ typedef struct Browser
     char version[_MAX_BROWSER_VERSION];
 } Browser;
 
-int existf(char *path);
 void Notification(char *Type, char *Message);
-unsigned GetOption(void);
 void DisplayOptions(void);
 void DisplayBroswerInfo(Browser);
+unsigned ExistFile(char *path);
+unsigned GetOption(void);
+unsigned UpdateHistoryFile(char (*BrowserPath)[_MAX_PATH]);
+unsigned GetLastestVisitedPages(Browser BrowserInfo);
 unsigned GetMostVisitedPages(Browser BrowserInfo);
 unsigned GetBrowserPath(unsigned BrowserId, char (*BrowserPath)[_MAX_PATH]);
 unsigned GetBrowserVersion(unsigned BrowserId, char (*BrowserVersion)[_MAX_BROWSER_VERSION]);
