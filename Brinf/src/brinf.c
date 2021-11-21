@@ -17,8 +17,8 @@ const char BrowserRegPath[_MAX_BROWSERS][_MAX_PATH] =
 const char BrowserLocalPath[_MAX_BROWSERS][_MAX_PATH] =
     {
         "None",
-        "",
-        "",
+        "\\Microsoft\\Edge\\User Data\\Default",
+        "\\Mozilla\\Firefox\\Profiles\\",
         "\\Google\\Chrome\\User Data\\Default",
         "\\Yandex\\YandexBrowser\\User Data\\Default"};
 
@@ -48,43 +48,62 @@ unsigned GetOption(void)
     return option;
 }
 
-unsigned UpdateHistoryFile(char (*BrowserPath)[_MAX_PATH])
+unsigned UpdateHistoryFile(unsigned BrowserId, char (*BrowserPath)[_MAX_PATH])
 {
     char tmp_path[_MAX_PATH];
     char cmd[_MAX_PATH];
-    snprintf(tmp_path, sizeof tmp_path, "%s\\History", getenv("TEMP"));
+    char filename[_MAX_FNAME];
+
+    if (BrowserId == MOZILLA_BROWSER)
+        strcpy(filename, "places.sqlite");
+    else
+        strcpy(filename, "History");
+
+    snprintf(tmp_path, sizeof tmp_path, "%s\\%s", getenv("TEMP"), filename);
     if (ExistFile(tmp_path) != 1)
     {
         Notification("Info", "Found history file, updating..");
         snprintf(cmd, sizeof cmd, "del %s", tmp_path);
     }
-    snprintf(tmp_path, sizeof tmp_path, "%s\\History", *BrowserPath);
+    snprintf(tmp_path, sizeof tmp_path, "%s\\%s", *BrowserPath, filename);
     snprintf(cmd, sizeof cmd, "copy \"%s\" %s > nul", tmp_path, getenv("TEMP"));
     system(cmd);
     Sleep(500);
     return EXIT_SUCCESS;
 }
 
-unsigned GetLastestVisitedPages(Browser BrowserInfo)
+unsigned GetLastestVisitedWebsites(Browser BrowserInfo)
 {
     sqlite3 *database;
     sqlite3_stmt *stmt;
-    char file_path[_MAX_PATH];
+    char file_path[_MAX_PATH], filename[_MAX_FNAME], query[_MAX_BUFFER];
 
-    if (UpdateHistoryFile(&BrowserInfo.path))
+    if (UpdateHistoryFile(BrowserInfo.id, &BrowserInfo.path))
     {
         Notification("Error", "Can't update the history file.");
         return EXIT_FAILURE;
     }
 
-    snprintf(file_path, sizeof file_path, "%s\\History", getenv("TEMP"));
+    if (BrowserInfo.id == MOZILLA_BROWSER)
+    {
+        strcpy(query, "SELECT datetime(last_visit_date/1000000, 'unixepoch', 'localtime'), title from moz_places ORDER BY last_visit_date DESC limit 20");
+        strcpy(filename, "places.sqlite");
+    }
+    else
+    {
+        strcpy(query, "SELECT datetime(last_visit_time/1000000-11644473600, 'unixepoch', 'localtime'), title from urls ORDER BY last_visit_time DESC limit 20");
+        strcpy(filename, "History");
+    }
+
+    snprintf(file_path, sizeof file_path, "%s\\%s", getenv("TEMP"), filename);
     if (sqlite3_open(file_path, &database))
     {
         sqlite3_close(database);
         Notification("Error", "Can't open the history database.");
         return EXIT_FAILURE;
     }
-    if (sqlite3_prepare_v2(database, "select title from urls ORDER BY last_visit_time DESC limit 20", -1, &stmt, NULL))
+
+    if (sqlite3_prepare_v2(database, query, -1, &stmt, NULL))
     {
         sqlite3_close(database);
         Notification("Error", "Can't execute select query.");
@@ -101,12 +120,13 @@ unsigned GetLastestVisitedPages(Browser BrowserInfo)
             switch (sqlite3_column_type(stmt, i))
             {
             case (SQLITE3_TEXT):
-                printf("> %s\n", sqlite3_column_text(stmt, i));
+                printf("%s ", sqlite3_column_text(stmt, i));
                 break;
             default:
                 break;
             }
         }
+        printf("\n");
     }
 
     sqlite3_finalize(stmt);
@@ -114,19 +134,30 @@ unsigned GetLastestVisitedPages(Browser BrowserInfo)
     return EXIT_SUCCESS;
 }
 
-unsigned GetMostVisitedPages(Browser BrowserInfo)
+unsigned GetMostVisitedWebsites(Browser BrowserInfo)
 {
     sqlite3 *database;
     sqlite3_stmt *stmt;
-    char file_path[_MAX_PATH];
+    char file_path[_MAX_PATH], filename[_MAX_FNAME], query[_MAX_BUFFER];
 
-    if (UpdateHistoryFile(&BrowserInfo.path))
+    if (UpdateHistoryFile(BrowserInfo.id, &BrowserInfo.path))
     {
         Notification("Error", "Can't update the history file.");
         return EXIT_FAILURE;
     }
 
-    snprintf(file_path, sizeof file_path, "%s\\History", getenv("TEMP"));
+    if (BrowserInfo.id == MOZILLA_BROWSER)
+    {
+        strcpy(query, "SELECT title, visit_count from moz_places ORDER BY visit_count DESC LIMIT 20");
+        strcpy(filename, "places.sqlite");
+    }
+    else
+    {
+        strcpy(query, "SELECT title, visit_count from urls ORDER BY visit_count DESC LIMIT 20");
+        strcpy(filename, "History");
+    }
+
+    snprintf(file_path, sizeof file_path, "%s\\%s", getenv("TEMP"), filename);
 
     if (sqlite3_open(file_path, &database))
     {
@@ -134,14 +165,14 @@ unsigned GetMostVisitedPages(Browser BrowserInfo)
         Notification("Error", "Can't open the history database.");
         return EXIT_FAILURE;
     }
-    if (sqlite3_prepare_v2(database, "SELECT title, visit_count from urls order by visit_count DESC LIMIT 20", -1, &stmt, NULL))
+    if (sqlite3_prepare_v2(database, query, -1, &stmt, NULL))
     {
         sqlite3_close(database);
         Notification("Error", "Can't execute select query.");
         return EXIT_FAILURE;
     }
 
-    Notification("Info", "Most visited pages\n");
+    Notification("Info", "Most visited websites\n");
 
     while (sqlite3_step(stmt) != SQLITE_DONE)
     {
@@ -176,8 +207,31 @@ void DisplayBroswerInfo(Browser BrowserInfo)
 
 unsigned GetBrowserPath(unsigned BrowserId, char (*BrowserPath)[_MAX_PATH])
 {
-    char path[_MAX_PATH] = {0};
-    snprintf(path, sizeof path, "%s%s", getenv("LOCALAPPDATA"), BrowserLocalPath[BrowserId]);
+    char path[_MAX_PATH] = {0}, buffer[_MAX_BUFFER];
+    if (BrowserId == MOZILLA_BROWSER)
+    {
+        snprintf(path, sizeof path, "%s%s", getenv("APPDATA"), BrowserLocalPath[BrowserId]);
+        char profile_folder[_MAX_FNAME], cmd[_MAX_PATH];
+        snprintf(cmd, sizeof cmd, "dir /d /b %s", path);
+        FILE *output = popen(cmd, "r");
+        while (fgets(buffer, sizeof buffer, output) != 0)
+        {
+            if (strstr(buffer, "default-release"))
+            {
+                size_t i = 0;
+                while (buffer[i++] != '\0')
+                    if (buffer[i] == '\n')
+                        buffer[i] = 0;
+                strcpy(profile_folder, buffer);
+            }
+        }
+        fclose(output);
+        snprintf(path, sizeof path, "%s%s%s", getenv("APPDATA"), BrowserLocalPath[BrowserId], profile_folder);
+    }
+    else
+        snprintf(path, sizeof path, "%s%s", getenv("LOCALAPPDATA"), BrowserLocalPath[BrowserId]);
+
+    printf("Success location: %s\n", path);
     strcpy(*BrowserPath, path);
     return EXIT_SUCCESS;
 }
@@ -189,8 +243,10 @@ unsigned GetBrowserVersion(unsigned BrowserId, char (*BrowserVersion)[_MAX_BROWS
     char Data[_MAX_BROWSER_VERSION] = {0};
     DWORD DataSize = 0;
 
+    strcpy(*BrowserVersion, "");
+
     if (BrowserId == MOZILLA_BROWSER)
-        strcpy(SubKey, "CurrentVersion");
+        strcpy(SubKey, "");
     else
         strcpy(SubKey, "version");
 
